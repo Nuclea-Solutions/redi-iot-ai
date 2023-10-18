@@ -22,8 +22,7 @@ class People:
 		return self.current_position[0] < self.previous_position[0]
 	
 	def is_inside_of(self, start_box, end_box):
-		x1, y1, x2, y2 = self.current_position.astype(int)
-		# return x1 >= start_box[0] and y1 >= start_box[1] and x2 <= end_box[0] and y2 <= end_box[1]
+		x1, _, x2, _ = self.current_position.astype(int)
 		return x1 >= start_box[0] and x2 <= end_box[0]
 
 server_ip = "127.0.0.1"
