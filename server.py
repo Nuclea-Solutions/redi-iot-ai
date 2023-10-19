@@ -113,7 +113,6 @@ def camera_and_processing_thread(events_queue, physical_events_queue):
 		logger.error("Error: Couldn't open camera.")
 		exit()
 
-	counter = 0
 	frame_id = 0
 
 	while True:
@@ -223,17 +222,14 @@ def main():
 	# thread running the socket server for events to send to clients
 	stp = Thread(target=socket_thread_processing, args=(socket_events_queue,))
 
-	# thread running the camera and processing the frames
-	cpt = Thread(target=camera_and_processing_thread, args=(socket_events_queue, physical_events_queue))
-
 	# thread running the physical events such as audio and alerts
 	pt = Thread(target=physical_thread, args=(physical_events_queue,))
-	cpt.start()
-	time.sleep(5)
 
 	stc.start()
 	stp.start()
 	pt.start()
+
+	camera_and_processing_thread(events_queue=socket_events_queue, physical_events_queue=physical_events_queue)
 
 if __name__ == "__main__":
 	main()
