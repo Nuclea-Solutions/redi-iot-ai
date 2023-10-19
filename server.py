@@ -1,12 +1,32 @@
 from ultralytics import YOLO
 from threading import Thread
 from queue import Queue
+import json
 import logging
+import time
 import cv2
 import supervision as sv
 import socket
 import requests
 import os
+
+class Event:
+	def __init__(self, event_type, data):
+		self.event_type = event_type
+		self.data = data
+
+	def __str__(self):
+		return f"{self.event_type}: {self.data}"
+	
+	def encode(self):
+		result = {
+			"event_type": self.event_type,
+		}
+		
+		if self.data is not None:
+			result["value"] = self.data
+
+		return json.dumps(result).encode()
 
 class People:
 	def __init__(self, id, position):
@@ -66,6 +86,7 @@ annotator = sv.BoxAnnotator()
 byte_tracker = sv.ByteTrack()
 
 people_dict = {}
+conns = []
 
 def load_model(path: str):
 	return YOLO(path)
@@ -78,8 +99,9 @@ def send_message_to_whatsapp_group(message: str):
 		}
 	)
 
-def camera_and_processing_thread(events_queue):
+def camera_and_processing_thread(events_queue, physical_events_queue):
 	logger = logging.getLogger("camera_and_processing_thread")
+	logger.info("starting camera and processing thread")
 
 	model = load_model("yolov8l.pt")
 	logger.debug("yolov8 model loaded")
@@ -123,13 +145,16 @@ def camera_and_processing_thread(events_queue):
 			if people.is_inside_of(safe_box_start, safe_box_end):
 				labels.append(f"#{id}: thread")
 
+				angle = compute_angle(people.current_position[0], people.current_position[2] - people.current_position[0], frame.shape[1])
+				events_queue.put(Event("move", f"{angle:.1f}"))
+
 				if people.have_n_frames_passed(150) and not people.has_warning_message_been_sent:
-					angle = compute_angle(people.current_position[0], people.current_position[2] - people.current_position[0], frame.shape[1])
-					send_message_to_whatsapp_group(f"advertencia: se ha detectado un intruso, angle: {angle:.1f}")
+					physical_events_queue.put(Event("notification", f"advertencia: se ha detectado un intruso"))
 					people.has_warning_message_been_sent = True
 
 				if people.have_n_frames_passed(300) and not people.has_shot_being_fired_message_been_sent:
-					send_message_to_whatsapp_group("objetivo ha sido eliminado")
+					physical_events_queue.put(Event("notification", "objetivo ha sido eliminado"))
+					events_queue.put(Event("shoot", None))
 					people.has_shot_being_fired_message_been_sent = True
 
 
@@ -146,24 +171,69 @@ def camera_and_processing_thread(events_queue):
 	video_capture.release()
 	cv2.destroyAllWindows()
 
-def socket_thread(events_queue):
+def socket_thread_connections():
 	logger = logging.getLogger("socket_thread")
+	logger.info("starting socket thread")
 	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 	server.bind((server_ip, port))
 	server.listen(0)
 	logger.info(f"listening on {server_ip}:{port}")
+
+	while True:
+		conn, addr = server.accept()
+		conns.append(conn)
+		logger.info(f"accepted connection from {addr}")
+
+
+def socket_thread_processing(events_queue):
+	logger = logging.getLogger("socket_thread_processing")
+	logger.info("starting socket thread processing")
+	while True:
+		time.sleep(.1)
+		if not events_queue.empty():
+			event = events_queue.get()
+			logger.info(f"processing socket event {event}")
+			for conn in conns:
+				conn.sendall(event.encode())
+
+def physical_thread(events_queue):
+	logger = logging.getLogger("physical_thread")
+	logger.info("starting physical thread")
+	while True:
+		time.sleep(1)
+		if not events_queue.empty():
+			event = events_queue.get()
+			if event.event_type == "notification":
+				send_message_to_whatsapp_group(event.data)
+
 
 def main():
 	FORMAT = '%(asctime)s %(message)s'
 	logging.basicConfig(format=FORMAT, level=logging.DEBUG)
 	logger = logging.getLogger("server")
 
-	events_queue = Queue()
-	st = Thread(target=socket_thread, args=(events_queue,))
-	cpt = Thread(target=camera_and_processing_thread, args=(events_queue,))
-	st.start()
-	cpt.start()
+	# events that can happen at the device running this program
+	physical_events_queue = Queue()
+	# events that will communicate to the raspberry device through sockets
+	socket_events_queue = Queue()
 
+	# thread running the socket server for connections
+	stc = Thread(target=socket_thread_connections)
+
+	# thread running the socket server for events to send to clients
+	stp = Thread(target=socket_thread_processing, args=(socket_events_queue,))
+
+	# thread running the camera and processing the frames
+	cpt = Thread(target=camera_and_processing_thread, args=(socket_events_queue, physical_events_queue))
+
+	# thread running the physical events such as audio and alerts
+	pt = Thread(target=physical_thread, args=(physical_events_queue,))
+	cpt.start()
+	time.sleep(5)
+
+	stc.start()
+	stp.start()
+	pt.start()
 
 if __name__ == "__main__":
 	main()
