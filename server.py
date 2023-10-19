@@ -74,7 +74,7 @@ def compute_angle(x, width, frame_width):
 
     return angle
 
-server_ip = "127.0.0.1"
+server_ip = "0.0.0.0"
 port = 8080
 
 # camera is 1920x1080
