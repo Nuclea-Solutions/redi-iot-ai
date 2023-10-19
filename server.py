@@ -33,12 +33,24 @@ class People:
 			self.number_of_frames += 1
 		else:
 			self.number_of_frames = 0
-			self.has_message_been_sent = False
+			self.has_warning_message_been_sent = False
+			self.has_shot_being_fired_message_been_sent = False
 
 		return is_inside
 
 	def have_n_frames_passed(self, n):
 		return self.number_of_frames >= n
+
+def compute_angle(x, width, frame_width):
+    center_x = x + width / 2
+    offset = center_x - frame_width / 2
+
+    max_offset = frame_width / 2
+    max_angle = 45
+
+    angle = (offset / max_offset) * max_angle
+
+    return angle
 
 server_ip = "127.0.0.1"
 port = 8080
@@ -118,7 +130,8 @@ def main():
 				labels.append(f"#{id}: thread")
 
 				if people.have_n_frames_passed(150) and not people.has_warning_message_been_sent:
-					send_message_to_whatsapp_group("advertencia: se ha detectado un intruso")
+					angle = compute_angle(people.current_position[0], people.current_position[2] - people.current_position[0], frame.shape[1])
+					send_message_to_whatsapp_group(f"advertencia: se ha detectado un intruso, angle: {angle:.1f}")
 					people.has_warning_message_been_sent = True
 
 				if people.have_n_frames_passed(300) and not people.has_shot_being_fired_message_been_sent:
