@@ -61,8 +61,10 @@ def main():
 		exit()
 
 	counter = 0
+	frame_id = 0
 
 	while True:
+		logger.debug(f"processing frame #{frame_id}")
 		ret, frame = video_capture.read()
 			
 		if not ret:
@@ -90,14 +92,12 @@ def main():
 			if people.is_inside_of(safe_box_start, safe_box_end):
 				print('thread thread thread')
 				labels.append(f"#{id}: thread")
-				print('\a')
 
 		cv2.rectangle(frame, safe_box_start, safe_box_end, safe_box_color, safe_box_thickness)
 		image_with_annotations = annotator.annotate(scene=frame.copy(), detections=detections, labels=labels)
 		cv2.imshow('Prediction', image_with_annotations)
 
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-			break
+		frame_id += 1
 
 	video_capture.release()
 	cv2.destroyAllWindows()
