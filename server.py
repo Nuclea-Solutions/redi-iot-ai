@@ -1,4 +1,6 @@
 from ultralytics import YOLO
+from threading import Thread
+from queue import Queue
 import logging
 import cv2
 import supervision as sv
@@ -76,19 +78,11 @@ def send_message_to_whatsapp_group(message: str):
 		}
 	)
 
-
-def main():
-	FORMAT = '%(asctime)s %(message)s'
-	logging.basicConfig(format=FORMAT, level=logging.DEBUG)
-	logger = logging.getLogger("server")
+def camera_and_processing_thread(events_queue):
+	logger = logging.getLogger("camera_and_processing_thread")
 
 	model = load_model("yolov8l.pt")
 	logger.debug("yolov8 model loaded")
-
-	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	server.bind((server_ip, port))
-	server.listen(0)
-	logger.info(f"listening on {server_ip}:{port}")
 
 	video_capture = cv2.VideoCapture(0)
 	logger.debug("setting up camera")
@@ -151,6 +145,24 @@ def main():
 
 	video_capture.release()
 	cv2.destroyAllWindows()
+
+def socket_thread(events_queue):
+	logger = logging.getLogger("socket_thread")
+	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	server.bind((server_ip, port))
+	server.listen(0)
+	logger.info(f"listening on {server_ip}:{port}")
+
+def main():
+	FORMAT = '%(asctime)s %(message)s'
+	logging.basicConfig(format=FORMAT, level=logging.DEBUG)
+	logger = logging.getLogger("server")
+
+	events_queue = Queue()
+	st = Thread(target=socket_thread, args=(events_queue,))
+	cpt = Thread(target=camera_and_processing_thread, args=(events_queue,))
+	st.start()
+	cpt.start()
 
 
 if __name__ == "__main__":
