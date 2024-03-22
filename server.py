@@ -113,25 +113,28 @@ def camera_and_processing_thread(events_queue, physical_events_queue):
 		logger.error("Error: Couldn't open camera.")
 		exit()
 
-	frame_id = 0
+	frame_id = -1
 
 	while True:
+		success, frame = video_capture.read()
+		frame_id += 1
 		logger.info(f"processing frame #{frame_id}")
-		ret, frame = video_capture.read()
 			
-		if not ret:
+		if not success:
 			logger.error("Error: Can't receive frame (stream end?). Exiting ...")
 			break
 
-		predictions = model(frame)[0]
-		detections = sv.Detections.from_yolov8(predictions)
-		detections = detections[detections.class_id == 0]
+		if frame_id % 10 != 0:
+			continue
 
+		predictions = model(frame)[0]
+		detections = sv.Detections.from_ultralytics(predictions)
+		detections = detections[detections.class_id == 0]
 		detections = byte_tracker.update_with_detections(detections)
 
 		labels = []
 
-		for xyxy, _, confidence, class_id, tracker_id in detections:
+		for xyxy, tracker_id in zip(detections.xyxy, detections.tracker_id):
 			if tracker_id in people_dict:
 				people = people_dict[tracker_id]
 				people.set_position(xyxy)
@@ -165,12 +168,15 @@ def camera_and_processing_thread(events_queue, physical_events_queue):
 		if key == ord("q"):
 			break
 
-		frame_id += 1
+	# send signals to terminate threads
+	events_queue.put(Event("stop", None))
+	physical_events_queue.put(Event("stop", None))
 
+	# clean up windows
 	video_capture.release()
 	cv2.destroyAllWindows()
 
-def socket_thread_connections():
+def socket_thread_connections(socket_server_queue):
 	logger = logging.getLogger("socket_thread")
 	logger.info("starting socket thread")
 	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -192,6 +198,9 @@ def socket_thread_processing(events_queue):
 		if not events_queue.empty():
 			event = events_queue.get()
 			logger.info(f"processing socket event {event}")
+			if event.event_type == "stop":
+				break
+
 			for conn in conns:
 				conn.sendall(event.encode())
 
@@ -204,17 +213,16 @@ def physical_thread(events_queue):
 			event = events_queue.get()
 			if event.event_type == "notification":
 				send_message_to_whatsapp_group(event.data)
+			else:
+				break
 
 
 def main():
-	FORMAT = '%(asctime)s %(message)s'
-	logging.basicConfig(format=FORMAT, level=logging.DEBUG)
-	logger = logging.getLogger("server")
-
+	logger = logging.getLogger("main")
 	# events that can happen at the device running this program
 	physical_events_queue = Queue()
 	# events that will communicate to the raspberry device through sockets
-	socket_events_queue = Queue()
+	socket_events_queue = Queue(maxsize=1)
 
 	# thread running the socket server for connections
 	stc = Thread(target=socket_thread_connections)
@@ -231,5 +239,14 @@ def main():
 
 	camera_and_processing_thread(events_queue=socket_events_queue, physical_events_queue=physical_events_queue)
 
+	stc.join(timeout=1)
+	logger.info("closing socket server")
+	stp.join()
+	logger.info("closing socket conns")
+	pt.join()
+	logger.info("closing physical events")
+
 if __name__ == "__main__":
+	FORMAT = '%(asctime)s %(message)s'
+	logging.basicConfig(format=FORMAT, level=logging.DEBUG)
 	main()
