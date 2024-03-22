@@ -109,13 +109,9 @@ def camera_and_processing_thread(events_queue, physical_events_queue):
 	video_capture = cv2.VideoCapture(0)
 	logger.debug("setting up camera")
 
-	if not video_capture.isOpened():
-		logger.error("Error: Couldn't open camera.")
-		exit()
-
 	frame_id = -1
 
-	while True:
+	while video_capture.isOpened():
 		success, frame = video_capture.read()
 		frame_id += 1
 		logger.info(f"processing frame #{frame_id}")
@@ -176,7 +172,7 @@ def camera_and_processing_thread(events_queue, physical_events_queue):
 	video_capture.release()
 	cv2.destroyAllWindows()
 
-def socket_thread_connections(socket_server_queue):
+def socket_thread_connections():
 	logger = logging.getLogger("socket_thread")
 	logger.info("starting socket thread")
 	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
